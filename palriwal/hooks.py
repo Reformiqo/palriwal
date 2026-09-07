@@ -45,8 +45,9 @@ app_license = "mit"
 # include js in doctype views
 doctype_js = {
 	"Sales Invoice": "public/js/sales_invoice.js",
-	"Purchase Invoice": "public/js/purchase_invoice.js",
+	"Purchase Invoice": ["public/js/purchase_invoice.js", "public/js/tcs_purchase_invoice.js"],
 	"Payment Entry": "public/js/payment_entry.js",
+	"Supplier": "public/js/tcs_supplier.js",
 }
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
@@ -90,7 +91,11 @@ doctype_js = {
 # ------------
 
 # before_install = "palriwal.install.before_install"
-# after_install = "palriwal.install.after_install"
+after_install = "palriwal.install.after_install"
+
+# Keeps the TCS custom fields (Supplier, Purchase Invoice, Purchase Taxes and Charges)
+# in sync on every `bench migrate` - see palriwal/palriwal/tcs/custom_fields.py
+after_migrate = "palriwal.install.after_migrate"
 
 # Uninstallation
 # ------------
@@ -149,6 +154,16 @@ doctype_js = {
 # 		"on_trash": "method"
 # 	}
 # }
+
+doc_events = {
+	"Purchase Invoice": {
+		# TCS engine (FRD v3.0, Sheet 10): runs the threshold calculation and refreshes the
+		# engine-owned row in Purchase Taxes and Charges. Same place the TDS engine runs.
+		"validate": "palriwal.palriwal.tcs.engine.validate",
+		# BR-027: supplier PAN warning, message only
+		"before_submit": "palriwal.palriwal.tcs.engine.before_submit",
+	},
+}
 
 # Scheduled Tasks
 # ---------------
@@ -259,4 +274,3 @@ doctype_js = {
 # ------------
 # List of apps whose translatable strings should be excluded from this app's translations.
 # ignore_translatable_strings_from = []
-
