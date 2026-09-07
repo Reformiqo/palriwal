@@ -1,0 +1,46 @@
+{
+ "actions": [],
+ "creation": "2026-09-07 00:00:00.000000",
+ "description": "Mirrors Tax Withholding Account field for field (FRD v3.0, Sheet 8).",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "company",
+  "account"
+ ],
+ "fields": [
+  {
+   "columns": 4,
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1,
+   "description": "One row per company"
+  },
+  {
+   "columns": 6,
+   "fieldname": "account",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Account",
+   "options": "Account",
+   "reqd": 1,
+   "description": "Must be an Asset account - TCS Receivable"
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-09-07 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Palriwal",
+ "name": "TCS Account",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

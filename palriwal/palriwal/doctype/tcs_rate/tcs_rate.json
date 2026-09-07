@@ -1,0 +1,74 @@
+{
+ "actions": [],
+ "creation": "2026-09-07 00:00:00.000000",
+ "description": "Mirrors Tax Withholding Rate field for field (FRD v3.0, Sheet 8).",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "from_date",
+  "to_date",
+  "tax_rate",
+  "single_threshold",
+  "cumulative_threshold"
+ ],
+ "fields": [
+  {
+   "columns": 2,
+   "fieldname": "from_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "From Date",
+   "reqd": 1,
+   "description": "Rate applies to invoices posted on or after this date"
+  },
+  {
+   "columns": 2,
+   "fieldname": "to_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "To Date",
+   "reqd": 1,
+   "description": "Rate applies to invoices posted on or before this date"
+  },
+  {
+   "columns": 2,
+   "fieldname": "tax_rate",
+   "fieldtype": "Percent",
+   "in_list_view": 1,
+   "label": "TCS Rate (%)",
+   "reqd": 1,
+   "description": "Stored as a percentage. 1 means 1%"
+  },
+  {
+   "columns": 2,
+   "fieldname": "single_threshold",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Single Transaction Threshold",
+   "options": "Company:company:default_currency",
+   "description": "TCS applies once a single invoice exceeds this. 0 means no single threshold"
+  },
+  {
+   "columns": 2,
+   "fieldname": "cumulative_threshold",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Cumulative Transaction Threshold",
+   "options": "Company:company:default_currency",
+   "description": "TCS applies once transactions with this supplier in the financial year exceed this. 0 means no cumulative threshold"
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-09-07 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Palriwal",
+ "name": "TCS Rate",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -1,0 +1,214 @@
+{
+ "actions": [],
+ "allow_import": 1,
+ "allow_rename": 1,
+ "autoname": "field:category_name",
+ "creation": "2026-09-07 00:00:00.000000",
+ "description": "TCS equivalent of Tax Withholding Category for supplier-collected TCS on Purchase Invoices (FRD v3.0, Sheet 7).",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "category_details_section",
+  "category_name",
+  "statutory_section",
+  "nature_of_collection",
+  "form_27eq_code",
+  "column_break_details",
+  "is_active",
+  "effective_from",
+  "effective_to",
+  "calculation_section",
+  "calculation_base",
+  "column_break_calc",
+  "collect_on_full_value",
+  "consider_party_ledger_amount",
+  "round_off_tax_amount",
+  "sb_rates",
+  "rates",
+  "sb_accounts",
+  "accounts"
+ ],
+ "fields": [
+  {
+   "fieldname": "category_details_section",
+   "fieldtype": "Section Break",
+   "label": "Category Details"
+  },
+  {
+   "fieldname": "category_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Category Name",
+   "reqd": 1,
+   "unique": 1,
+   "description": "Becomes the document name. Example: TCS - 206C(1) - Scrap"
+  },
+  {
+   "fieldname": "statutory_section",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Statutory Section",
+   "reqd": 1,
+   "description": "Example: 206C(1). Free text, so either 1961 Act or Income-tax Act 2025 numbering can be used."
+  },
+  {
+   "fieldname": "nature_of_collection",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Nature of Collection",
+   "description": "Descriptive text shown on the reports. Example: Scrap"
+  },
+  {
+   "fieldname": "form_27eq_code",
+   "fieldtype": "Data",
+   "label": "Form 27EQ Code",
+   "description": "Nature-of-collection code for return preparation. Example: E"
+  },
+  {
+   "fieldname": "column_break_details",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Is Active",
+   "description": "Untick to retire a category (for example an omitted section) without losing history."
+  },
+  {
+   "fieldname": "effective_from",
+   "fieldtype": "Date",
+   "label": "Effective From",
+   "description": "Start of statutory applicability"
+  },
+  {
+   "fieldname": "effective_to",
+   "fieldtype": "Date",
+   "label": "Effective To",
+   "description": "Set for omitted sections. Example: 206C(1H) ends 31-03-2025"
+  },
+  {
+   "fieldname": "calculation_section",
+   "fieldtype": "Section Break",
+   "label": "Calculation Settings"
+  },
+  {
+   "default": "Grand Total",
+   "fieldname": "calculation_base",
+   "fieldtype": "Select",
+   "label": "Calculation Base",
+   "options": "Grand Total\nNet Total",
+   "reqd": 1,
+   "description": "TCS is normally computed on the consideration including GST (Grand Total). TDS uses Net Total."
+  },
+  {
+   "fieldname": "column_break_calc",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "collect_on_full_value",
+   "fieldtype": "Check",
+   "label": "Collect on Full Value",
+   "description": "Ticked: TCS on the entire invoice base once the threshold is crossed (motor vehicles). Unticked: only on the amount exceeding the cumulative threshold."
+  },
+  {
+   "default": "0",
+   "fieldname": "consider_party_ledger_amount",
+   "fieldtype": "Check",
+   "label": "Consider Entire Party Ledger Amount",
+   "description": "When ticked, the cumulative threshold is tested against all submitted Purchase Invoices of the supplier in the financial year, regardless of category."
+  },
+  {
+   "default": "0",
+   "fieldname": "round_off_tax_amount",
+   "fieldtype": "Check",
+   "label": "Round Off Tax Amount",
+   "description": "Checking this will round off the TCS amount to the nearest integer"
+  },
+  {
+   "fieldname": "sb_rates",
+   "fieldtype": "Section Break",
+   "label": "Rates"
+  },
+  {
+   "fieldname": "rates",
+   "fieldtype": "Table",
+   "label": "Rates",
+   "options": "TCS Rate",
+   "reqd": 1
+  },
+  {
+   "fieldname": "sb_accounts",
+   "fieldtype": "Section Break",
+   "label": "Accounts"
+  },
+  {
+   "fieldname": "accounts",
+   "fieldtype": "Table",
+   "label": "Accounts",
+   "options": "TCS Account",
+   "reqd": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-07 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Palriwal",
+ "name": "TCS Category",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User"
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Auditor"
+  }
+ ],
+ "row_format": "Dynamic",
+ "search_fields": "statutory_section,nature_of_collection",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
