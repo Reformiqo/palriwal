@@ -82,6 +82,22 @@ class TestTCSCategory(FrappeTestCase):
 		doc = self.make_category(accounts=[{"company": self.company, "account": self.liability_account}])
 		self.assertRaises(frappe.ValidationError, doc.insert)
 
+	def test_payable_account_must_be_liability(self):
+		doc = self.make_category(
+			accounts=[
+				{
+					"company": self.company,
+					"account": self.asset_account,
+					"payable_account": self.asset_account,
+				}
+			]
+		)
+		self.assertRaises(frappe.ValidationError, doc.insert)
+
+	def test_at_least_one_account_per_row(self):
+		doc = self.make_category(accounts=[{"company": self.company}])
+		self.assertRaises(frappe.ValidationError, doc.insert)
+
 	def test_tc006_invalid_rate(self):
 		doc = self.make_category(
 			rates=[{"from_date": "2026-04-01", "to_date": "2027-03-31", "tax_rate": 150}]
@@ -106,6 +122,8 @@ class TestTCSCategory(FrappeTestCase):
 		doc = self.make_category().insert()
 		self.assertEqual(doc.get_applicable_rate_row("2026-06-15").tax_rate, 1)
 		self.assertEqual(doc.get_company_account(self.company), self.asset_account)
+		# sales side not mapped on this row
+		self.assertRaises(frappe.ValidationError, doc.get_company_account, self.company, "Customer")
 		self.assertRaises(frappe.ValidationError, doc.get_applicable_rate_row, "2025-06-15")
 		self.assertRaises(frappe.ValidationError, doc.get_company_account, "_No Such Company")
 

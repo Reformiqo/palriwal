@@ -87,24 +87,41 @@ class TCSCategory(Document):
 				frappe.throw(_("Company {0} is listed more than once").format(frappe.bold(d.company)))
 			companies.add(d.company)
 
-			# BR-004
-			account = frappe.db.get_value(
-				"Account", d.account, ["root_type", "is_group", "company"], as_dict=True
-			)
-			if not account:
-				frappe.throw(_("Row #{0}: Account {1} does not exist").format(d.idx, d.account))
-			if account.company != d.company:
-				frappe.throw(
-					_("Row #{0}: Account {1} does not belong to company {2}").format(
-						d.idx, frappe.bold(d.account), frappe.bold(d.company)
-					)
-				)
-			if account.root_type != "Asset" or account.is_group:
+			if not d.account and not d.payable_account:
 				frappe.throw(
 					_(
-						"Row #{0}: TCS on purchases is a receivable - select an Asset (non-group) account for {1}"
-					).format(d.idx, frappe.bold(d.account))
+						"Row #{0}: set a Receivable Account (for purchases), a Payable Account (for sales) or both"
+					).format(d.idx)
 				)
+
+			# BR-004: purchases post to an asset (TCS Receivable), sales to a liability (TCS Payable)
+			if d.account:
+				self.validate_account_type(
+					d.idx, d.account, d.company, "Asset", _("TCS on purchases is a receivable")
+				)
+			if d.payable_account:
+				self.validate_account_type(
+					d.idx, d.payable_account, d.company, "Liability", _("TCS on sales is a payable")
+				)
+
+	def validate_account_type(self, idx, account_name, company, root_type, reason):
+		account = frappe.db.get_value(
+			"Account", account_name, ["root_type", "is_group", "company"], as_dict=True
+		)
+		if not account:
+			frappe.throw(_("Row #{0}: Account {1} does not exist").format(idx, account_name))
+		if account.company != company:
+			frappe.throw(
+				_("Row #{0}: Account {1} does not belong to company {2}").format(
+					idx, frappe.bold(account_name), frappe.bold(company)
+				)
+			)
+		if account.root_type != root_type or account.is_group:
+			frappe.throw(
+				_("Row #{0}: {1} - select a {2} (non-group) account instead of {3}").format(
+					idx, reason, _(root_type), frappe.bold(account_name)
+				)
+			)
 
 	# ------------------------------------------------------------------
 	# Resolvers used by the Purchase Invoice engine (Sheet 10, steps 2 to 4)
@@ -134,15 +151,26 @@ class TCSCategory(Document):
 				)
 			)
 
-	def get_company_account(self, company):
-		"""BR-011: the TCS Account row for the invoice's company."""
+	def get_company_account(self, company, party_type="Supplier"):
+		"""BR-011: the account mapped for the invoice's company.
+
+		Supplier (Purchase Invoice) -> Receivable Account (asset, debited).
+		Customer (Sales Invoice)    -> Payable Account (liability, credited).
+		"""
+		fieldname = "payable_account" if party_type == "Customer" else "account"
+		label = (
+			_("Payable Account (Sales)") if party_type == "Customer" else _("Receivable Account (Purchase)")
+		)
+
 		for row in self.accounts:
 			if row.company == company:
-				return row.account
+				if row.get(fieldname):
+					return row.get(fieldname)
+				break
 
 		frappe.throw(
-			_("No TCS account is configured for company {0} on category {1}").format(
-				frappe.bold(company), frappe.bold(self.name)
+			_("No TCS account is configured for company {0} on category {1} ({2})").format(
+				frappe.bold(company), frappe.bold(self.name), label
 			)
 		)
 

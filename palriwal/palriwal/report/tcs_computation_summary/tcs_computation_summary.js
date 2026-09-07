@@ -12,6 +12,25 @@ frappe.query_reports["TCS Computation Summary"] = {
 			reqd: 1,
 		},
 		{
+			fieldname: "party_type",
+			label: __("Party Type"),
+			fieldtype: "Select",
+			options: ["Supplier", "Customer"],
+			default: "Supplier",
+			reqd: 1,
+			on_change() {
+				frappe.query_report.set_filter_value("party", "");
+			},
+		},
+		{
+			fieldname: "party",
+			label: __("Party"),
+			fieldtype: "Dynamic Link",
+			get_options() {
+				return frappe.query_report.get_filter_value("party_type");
+			},
+		},
+		{
 			fieldname: "fiscal_year",
 			label: __("Fiscal Year"),
 			fieldtype: "Link",
@@ -44,12 +63,6 @@ frappe.query_reports["TCS Computation Summary"] = {
 			reqd: 1,
 		},
 		{
-			fieldname: "supplier",
-			label: __("Supplier"),
-			fieldtype: "Link",
-			options: "Supplier",
-		},
-		{
 			fieldname: "tcs_category",
 			label: __("TCS Category"),
 			fieldtype: "Link",
@@ -73,13 +86,8 @@ frappe.query_reports["TCS Computation Summary"] = {
 		value = default_formatter(value, row, column, data);
 		if (data && data.is_total_row) {
 			value = `<b>${value}</b>`;
-		} else if (
-			column.fieldname === "supplier_pan" &&
-			data &&
-			!data.supplier_pan &&
-			data.supplier
-		) {
-			// Blank PAN highlighted - needed for Form 26AS matching
+		} else if (column.fieldname === "party_pan" && data && !data.party_pan && data.party) {
+			// Blank PAN highlighted - needed for Form 26AS / 27EQ matching
 			value = `<span class="indicator-pill red">${__("Missing")}</span>`;
 		}
 		return value;

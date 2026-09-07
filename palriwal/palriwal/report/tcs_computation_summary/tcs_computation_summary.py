@@ -3,10 +3,14 @@
 
 """TCS Computation Summary - mirrors TDS Computation Summary (FRD v3.0, Sheet 14, Report 1).
 
-Supplier-wise and section-wise view of every submitted Purchase Invoice that carried
-Apply TCS, with the base, rate, amount, threshold status and a running cumulative base
-for the financial year. Tie-out rule: the TCS Amount total for a period equals the total
-debit to the TCS Receivable account(s) in the General Ledger for the same period.
+Party-wise and section-wise view of every submitted invoice that carried Apply TCS,
+with the base, rate, amount, threshold status and a running cumulative base for the
+financial year. Party Type = Supplier reads Purchase Invoices (TCS Receivable),
+Party Type = Customer reads Sales Invoices (TCS Payable).
+
+Tie-out rule: the TCS Amount total for a period equals the total debit to the TCS
+Receivable account(s) (purchases) or the total credit to the TCS Payable account(s)
+(sales) in the General Ledger for the same period.
 """
 
 import frappe
@@ -18,7 +22,8 @@ from frappe.utils import flt, getdate
 from palriwal.palriwal.tcs.report_utils import (
 	get_category_accounts,
 	get_category_settings,
-	get_supplier_pan_map,
+	get_party_pan_map,
+	get_side,
 	invoice_base,
 )
 
@@ -26,7 +31,8 @@ from palriwal.palriwal.tcs.report_utils import (
 def execute(filters=None):
 	filters = frappe._dict(filters or {})
 	validate_filters(filters)
-	return get_columns(), get_data(filters)
+	side = get_side(filters.party_type)
+	return get_columns(side), get_data(filters, side)
 
 
 def validate_filters(filters):
@@ -53,16 +59,22 @@ def validate_filters(filters):
 	filters.fy_end = getdate(from_fy[2])
 
 
-def get_columns():
+def get_columns(side):
+	party_type = side.party_type
 	return [
 		{
-			"label": _("Supplier"),
-			"fieldname": "supplier",
+			"label": _(party_type),
+			"fieldname": "party",
 			"fieldtype": "Link",
-			"options": "Supplier",
+			"options": party_type,
 			"width": 180,
 		},
-		{"label": _("Supplier PAN"), "fieldname": "supplier_pan", "fieldtype": "Data", "width": 110},
+		{
+			"label": _("{0} PAN").format(_(party_type)),
+			"fieldname": "party_pan",
+			"fieldtype": "Data",
+			"width": 110,
+		},
 		{
 			"label": _("TCS Category"),
 			"fieldname": "tcs_category",
@@ -72,10 +84,10 @@ def get_columns():
 		},
 		{"label": _("Section"), "fieldname": "section", "fieldtype": "Data", "width": 100},
 		{
-			"label": _("Purchase Invoice"),
-			"fieldname": "purchase_invoice",
+			"label": _(side.doctype),
+			"fieldname": "invoice",
 			"fieldtype": "Link",
-			"options": "Purchase Invoice",
+			"options": side.doctype,
 			"width": 150,
 		},
 		{"label": _("Posting Date"), "fieldname": "posting_date", "fieldtype": "Date", "width": 100},
@@ -110,7 +122,7 @@ def get_columns():
 			"width": 150,
 		},
 		{
-			"label": _("TCS Account"),
+			"label": _(side.account_label),
 			"fieldname": "tcs_account",
 			"fieldtype": "Link",
 			"options": "Account",
@@ -126,59 +138,60 @@ def get_columns():
 	]
 
 
-def get_invoices(filters):
+def get_invoices(filters, side):
 	"""Every submitted TCS invoice from the start of the financial year up to To Date.
 
 	The whole year is read so the cumulative base is correct even when From Date is
 	later than the year start; rows before From Date are dropped after accumulating.
 	"""
-	pi = frappe.qb.DocType("Purchase Invoice")
+	inv = frappe.qb.DocType(side.doctype)
+	party = inv[side.party_field]
 	query = (
-		frappe.qb.from_(pi)
+		frappe.qb.from_(inv)
 		.select(
-			pi.name,
-			pi.supplier,
-			pi.posting_date,
-			pi.is_return,
-			pi.base_net_total,
-			pi.base_grand_total,
-			pi.custom_tcs_category,
-			pi.custom_tcs_section,
-			pi.custom_tcs_rate,
-			pi.custom_tcs_base_amount,
-			pi.custom_tcs_amount,
-			pi.custom_tcs_threshold_status,
+			inv.name,
+			party.as_("party"),
+			inv.posting_date,
+			inv.is_return,
+			inv.base_net_total,
+			inv.base_grand_total,
+			inv.custom_tcs_category,
+			inv.custom_tcs_section,
+			inv.custom_tcs_rate,
+			inv.custom_tcs_base_amount,
+			inv.custom_tcs_amount,
+			inv.custom_tcs_threshold_status,
 		)
-		.where(pi.docstatus == 1)
-		.where(pi.company == filters.company)
-		.where(pi.custom_apply_tcs == 1)
-		.where(IfNull(pi.custom_tcs_category, "") != "")
-		.where(IfNull(pi.is_opening, "No") != "Yes")
-		.where(pi.posting_date >= filters.fy_start)
-		.where(pi.posting_date <= getdate(filters.to_date))
-		.orderby(pi.supplier)
-		.orderby(pi.custom_tcs_category)
-		.orderby(pi.posting_date)
-		.orderby(pi.name)
+		.where(inv.docstatus == 1)
+		.where(inv.company == filters.company)
+		.where(inv.custom_apply_tcs == 1)
+		.where(IfNull(inv.custom_tcs_category, "") != "")
+		.where(IfNull(inv.is_opening, "No") != "Yes")
+		.where(inv.posting_date >= filters.fy_start)
+		.where(inv.posting_date <= getdate(filters.to_date))
+		.orderby(party)
+		.orderby(inv.custom_tcs_category)
+		.orderby(inv.posting_date)
+		.orderby(inv.name)
 	)
-	if filters.supplier:
-		query = query.where(pi.supplier == filters.supplier)
+	if filters.party:
+		query = query.where(party == filters.party)
 	if filters.tcs_category:
-		query = query.where(pi.custom_tcs_category == filters.tcs_category)
+		query = query.where(inv.custom_tcs_category == filters.tcs_category)
 
 	return query.run(as_dict=True)
 
 
-def get_data(filters):
-	invoices = get_invoices(filters)
+def get_data(filters, side):
+	invoices = get_invoices(filters, side)
 	if not invoices:
 		return []
 
 	company_currency = frappe.get_cached_value("Company", filters.company, "default_currency")
 	categories = {inv.custom_tcs_category for inv in invoices}
 	settings = get_category_settings(categories)
-	accounts = get_category_accounts(categories, filters.company)
-	pan_map = get_supplier_pan_map({inv.supplier for inv in invoices})
+	accounts = get_category_accounts(categories, filters.company, side.account_field)
+	pan_map = get_party_pan_map(side.party_type, {inv.party for inv in invoices})
 
 	from_date = getdate(filters.from_date)
 	running = {}
@@ -186,7 +199,7 @@ def get_data(filters):
 	total_base = total_amount = 0.0
 
 	for inv in invoices:
-		key = (inv.supplier, inv.custom_tcs_category)
+		key = (inv.party, inv.custom_tcs_category)
 		running[key] = running.get(key, 0.0) + invoice_base(inv, settings.get(inv.custom_tcs_category))
 
 		if getdate(inv.posting_date) < from_date:
@@ -196,11 +209,11 @@ def get_data(filters):
 
 		data.append(
 			{
-				"supplier": inv.supplier,
-				"supplier_pan": pan_map.get(inv.supplier),
+				"party": inv.party,
+				"party_pan": pan_map.get(inv.party),
 				"tcs_category": inv.custom_tcs_category,
 				"section": inv.custom_tcs_section,
-				"purchase_invoice": inv.name,
+				"invoice": inv.name,
 				"posting_date": inv.posting_date,
 				"base_total": flt(inv.custom_tcs_base_amount),
 				"grand_total": flt(inv.base_grand_total),
@@ -218,7 +231,7 @@ def get_data(filters):
 	if data:
 		data.append(
 			{
-				"supplier": _("Total"),
+				"party": _("Total"),
 				"base_total": total_base,
 				"tcs_amount": total_amount,
 				"currency": company_currency,

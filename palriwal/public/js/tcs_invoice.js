@@ -1,6 +1,6 @@
-// Palriwal TCS engine - Purchase Invoice form (FRD v3.0, Sheet 10 trigger table).
+// Palriwal TCS engine - Purchase Invoice and Sales Invoice forms (FRD v3.0, Sheet 10).
 //
-//   supplier changed      -> default the category from the supplier, set Apply TCS (BR-014)
+//   party changed         -> default the category from the supplier / customer, set Apply TCS (BR-014)
 //   Apply TCS toggled     -> recalculate; unticked removes the engine row and clears fields
 //   TCS Category changed  -> recalculate from scratch against the new category
 //   posting_date changed  -> re-resolve the rate row and recalculate
@@ -9,9 +9,28 @@
 // form and the save use one and the same algorithm. The server-side validate is still the
 // authority - whatever the form shows is recomputed on save.
 //
-// Loaded through hooks.py -> doctype_js.
+// Loaded through hooks.py -> doctype_js for both invoice doctypes; the guard keeps the
+// handlers from being registered twice when both forms are opened in one session.
 
 (function () {
+	if (window.__palriwal_tcs_invoice_loaded) return;
+	window.__palriwal_tcs_invoice_loaded = true;
+
+	const INVOICES = [
+		{
+			doctype: "Purchase Invoice",
+			party_type: "Supplier",
+			party_field: "supplier",
+			taxes_doctype: "Purchase Taxes and Charges",
+		},
+		{
+			doctype: "Sales Invoice",
+			party_type: "Customer",
+			party_field: "customer",
+			taxes_doctype: "Sales Taxes and Charges",
+		},
+	];
+
 	const TRACKING_FIELDS = [
 		"custom_tcs_section",
 		"custom_tcs_rate",
@@ -33,10 +52,6 @@
 		"included_in_print_rate",
 		"included_in_paid_amount",
 	];
-
-	function set_category_query(frm) {
-		frm.set_query("custom_tcs_category", () => ({ filters: { is_active: 1 } }));
-	}
 
 	function remove_engine_rows(frm) {
 		const rows = (frm.doc.taxes || []).filter((d) => d.custom_is_tcs_row);
@@ -72,7 +87,7 @@
 		frm.dirty();
 	}
 
-	function recalculate(frm) {
+	function recalculate(frm, cfg) {
 		if (frm.doc.docstatus !== 0) return;
 
 		frm.__tcs_token = (frm.__tcs_token || 0) + 1;
@@ -88,7 +103,7 @@
 			return;
 		}
 
-		if (!frm.doc.company || !frm.doc.posting_date || !frm.doc.supplier) return;
+		if (!frm.doc.company || !frm.doc.posting_date || !frm.doc[cfg.party_field]) return;
 
 		frappe.call({
 			method: "palriwal.palriwal.tcs.engine.get_tcs_details",
@@ -102,30 +117,35 @@
 		});
 	}
 
-	function default_from_supplier(frm) {
+	function fetch_party_category(frm, cfg, callback) {
+		frappe.call({
+			method: "palriwal.palriwal.tcs.engine.get_party_tcs_category",
+			args: { party_type: cfg.party_type, party: frm.doc[cfg.party_field] },
+			callback(r) {
+				callback(r.message || null);
+			},
+		});
+	}
+
+	function default_from_party(frm, cfg) {
 		if (!frm.is_new() || frm.doc.docstatus !== 0) return;
 
-		if (!frm.doc.supplier) {
+		if (!frm.doc[cfg.party_field]) {
 			frm.doc.custom_apply_tcs = 0;
 			frm.doc.custom_tcs_category = null;
 			frm.refresh_field("custom_apply_tcs");
 			frm.refresh_field("custom_tcs_category");
-			recalculate(frm);
+			recalculate(frm, cfg);
 			return;
 		}
 
-		frappe.call({
-			method: "palriwal.palriwal.tcs.engine.get_supplier_tcs_category",
-			args: { supplier: frm.doc.supplier },
-			callback(r) {
-				const category = r.message || null;
-				// BR-014: ticked when the supplier has a category, otherwise not
-				frm.doc.custom_apply_tcs = category ? 1 : 0;
-				frm.doc.custom_tcs_category = category;
-				frm.refresh_field("custom_apply_tcs");
-				frm.refresh_field("custom_tcs_category");
-				recalculate(frm);
-			},
+		fetch_party_category(frm, cfg, (category) => {
+			// BR-014: ticked when the party has a category, otherwise not
+			frm.doc.custom_apply_tcs = category ? 1 : 0;
+			frm.doc.custom_tcs_category = category;
+			frm.refresh_field("custom_apply_tcs");
+			frm.refresh_field("custom_tcs_category");
+			recalculate(frm, cfg);
 		});
 	}
 
@@ -133,78 +153,79 @@
 		const row = locals[cdt][cdn];
 		const grid_row = frm.fields_dict.taxes.grid.get_row(cdn);
 		if (!grid_row) return;
-		const editable = !row.custom_is_tcs_row || frm.doc.docstatus !== 0;
+		const editable = !row.custom_is_tcs_row && frm.doc.docstatus === 0;
 		LOCKED_ROW_FIELDS.forEach((f) => {
 			if (grid_row.docfields.find((df) => df.fieldname === f)) {
-				grid_row.toggle_editable(f, editable && frm.doc.docstatus === 0);
+				grid_row.toggle_editable(f, editable);
 			}
 		});
 	}
 
-	frappe.ui.form.on("Purchase Invoice", {
-		setup(frm) {
-			set_category_query(frm);
-		},
+	INVOICES.forEach((cfg) => {
+		const handlers = {
+			setup(frm) {
+				frm.set_query("custom_tcs_category", () => ({ filters: { is_active: 1 } }));
+			},
 
-		onload(frm) {
-			// A brand-new invoice that already carries a supplier (duplicated, mapped from a
-			// Purchase Order/Receipt, or created from a list filter) still needs the default.
-			if (
-				frm.is_new() &&
-				frm.doc.supplier &&
-				!frm.doc.custom_apply_tcs &&
-				!frm.doc.custom_tcs_category
-			) {
-				default_from_supplier(frm);
-			}
-		},
+			onload(frm) {
+				// A brand-new invoice that already carries a party (duplicated, mapped from an
+				// order / delivery / receipt, or created from a list filter) still needs the default.
+				if (
+					frm.is_new() &&
+					frm.doc[cfg.party_field] &&
+					!frm.doc.custom_apply_tcs &&
+					!frm.doc.custom_tcs_category
+				) {
+					default_from_party(frm, cfg);
+				}
+			},
 
-		supplier(frm) {
-			default_from_supplier(frm);
-		},
-
-		custom_apply_tcs(frm) {
-			if (!frm.doc.custom_apply_tcs) {
-				recalculate(frm);
-				return;
-			}
-			if (!frm.doc.custom_tcs_category && frm.doc.supplier) {
-				frappe.call({
-					method: "palriwal.palriwal.tcs.engine.get_supplier_tcs_category",
-					args: { supplier: frm.doc.supplier },
-					callback(r) {
-						frm.doc.custom_tcs_category = r.message || null;
+			custom_apply_tcs(frm) {
+				if (!frm.doc.custom_apply_tcs) {
+					recalculate(frm, cfg);
+					return;
+				}
+				if (!frm.doc.custom_tcs_category && frm.doc[cfg.party_field]) {
+					fetch_party_category(frm, cfg, (category) => {
+						frm.doc.custom_tcs_category = category;
 						frm.refresh_field("custom_tcs_category");
-						recalculate(frm);
-					},
-				});
-			} else {
-				recalculate(frm);
-			}
-		},
+						recalculate(frm, cfg);
+					});
+				} else {
+					recalculate(frm, cfg);
+				}
+			},
 
-		custom_tcs_category(frm) {
-			recalculate(frm);
-		},
+			custom_tcs_category(frm) {
+				recalculate(frm, cfg);
+			},
 
-		posting_date(frm) {
-			if (frm.doc.custom_apply_tcs && frm.doc.custom_tcs_category) recalculate(frm);
-		},
-	});
+			posting_date(frm) {
+				if (frm.doc.custom_apply_tcs && frm.doc.custom_tcs_category) recalculate(frm, cfg);
+			},
+		};
+		// supplier(frm) / customer(frm)
+		handlers[cfg.party_field] = function (frm) {
+			default_from_party(frm, cfg);
+		};
 
-	frappe.ui.form.on("Purchase Taxes and Charges", {
-		form_render(frm, cdt, cdn) {
-			lock_engine_row(frm, cdt, cdn);
-		},
-		taxes_remove(frm) {
-			// Removing the engine row by hand is undone on save; keep the form honest now.
-			if (
-				frm.doc.custom_apply_tcs &&
-				frm.doc.custom_tcs_category &&
-				!(frm.doc.taxes || []).some((d) => d.custom_is_tcs_row)
-			) {
-				if (frm.doc.custom_tcs_amount) recalculate(frm);
-			}
-		},
+		frappe.ui.form.on(cfg.doctype, handlers);
+
+		frappe.ui.form.on(cfg.taxes_doctype, {
+			form_render(frm, cdt, cdn) {
+				lock_engine_row(frm, cdt, cdn);
+			},
+			taxes_remove(frm) {
+				// Removing the engine row by hand is undone on save; keep the form honest now.
+				if (
+					frm.doc.custom_apply_tcs &&
+					frm.doc.custom_tcs_category &&
+					frm.doc.custom_tcs_amount &&
+					!(frm.doc.taxes || []).some((d) => d.custom_is_tcs_row)
+				) {
+					recalculate(frm, cfg);
+				}
+			},
+		});
 	});
 })();

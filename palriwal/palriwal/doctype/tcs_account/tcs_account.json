@@ -1,17 +1,18 @@
 {
  "actions": [],
  "creation": "2026-09-07 00:00:00.000000",
- "description": "Mirrors Tax Withholding Account field for field (FRD v3.0, Sheet 8).",
+ "description": "Mirrors Tax Withholding Account (FRD v3.0, Sheet 8), with one account per side: the TCS Receivable asset for Purchase Invoices and the TCS Payable liability for Sales Invoices.",
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
   "company",
-  "account"
+  "account",
+  "payable_account"
  ],
  "fields": [
   {
-   "columns": 4,
+   "columns": 3,
    "fieldname": "company",
    "fieldtype": "Link",
    "in_list_view": 1,
@@ -21,14 +22,22 @@
    "description": "One row per company"
   },
   {
-   "columns": 6,
+   "columns": 4,
    "fieldname": "account",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Account",
+   "label": "Receivable Account (Purchase)",
    "options": "Account",
-   "reqd": 1,
-   "description": "Must be an Asset account - TCS Receivable"
+   "description": "Asset account debited on Purchase Invoices - TCS Receivable. Required when the category is used on purchases."
+  },
+  {
+   "columns": 4,
+   "fieldname": "payable_account",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Payable Account (Sales)",
+   "options": "Account",
+   "description": "Liability account credited on Sales Invoices - TCS Payable. Required when the category is used on sales."
   }
  ],
  "istable": 1,

@@ -1,16 +1,22 @@
 # Copyright (c) 2026, Reformiqo and contributors
 # For license information, please see license.txt
 
-"""Purchase Invoice TCS calculation engine (FRD v3.0, Sheet 10).
+"""Invoice TCS calculation engine (FRD v3.0, Sheet 10) for Purchase and Sales Invoices.
 
-A direct mirror of the way the native TDS engine works on a Purchase Invoice:
+A direct mirror of the way the native TDS engine works on an invoice:
 
 * runs on ``validate`` (hooks.py -> doc_events),
-* owns exactly ONE row in Purchase Taxes and Charges, flagged ``custom_is_tcs_row``,
-  charge_type Actual, add_deduct_tax Add (TCS collected by the supplier INCREASES what
-  we owe - it is debited to a TCS Receivable asset account),
+* owns exactly ONE row in the taxes table, flagged ``custom_is_tcs_row``, charge_type
+  Actual, always ADDED to the invoice total,
 * writes five read-only tracking fields on the invoice,
 * never posts GL itself - the standard invoice posting logic does that.
+
+The two sides differ only in the account the row posts to:
+
+* Purchase Invoice - TCS collected FROM us by the supplier. The row is debited to the
+  category's Receivable Account (asset, TCS Receivable) and increases what we owe.
+* Sales Invoice - TCS collected BY us from the customer. The row is credited to the
+  category's Payable Account (liability, TCS Payable) and increases what the customer owes.
 
 The arithmetic (steps 7 to 12) lives in ``tcs_math.py`` so it can be unit-tested
 without a site; everything here is database work and document plumbing.
@@ -33,31 +39,39 @@ TRACKING_FIELDS = (
 	"custom_tcs_threshold_status",
 )
 
+# Which party an invoice belongs to and which account the engine row posts to.
+INVOICE_CONFIG = {
+	"Purchase Invoice": frappe._dict(party_type="Supplier", party_field="supplier"),
+	"Sales Invoice": frappe._dict(party_type="Customer", party_field="customer"),
+}
+
 
 # ----------------------------------------------------------------------
 # hooks.py entry points
 # ----------------------------------------------------------------------
 def validate(doc, method=None):
-	"""Purchase Invoice ``validate`` - trigger point 1 (Sheet 10)."""
+	"""Purchase / Sales Invoice ``validate`` - trigger point 1 (Sheet 10)."""
 	TCSEngine(doc).run()
 
 
 def before_submit(doc, method=None):
-	"""BR-027: warn (do not block) when TCS was applied and the supplier has no PAN."""
+	"""BR-027: warn (do not block) when TCS was applied and the party has no PAN."""
 	if not (cint(doc.get("custom_apply_tcs")) and flt(doc.get("custom_tcs_amount"))):
 		return
 
-	pan = get_supplier_pan(doc.supplier)
-	if not pan:
+	config = INVOICE_CONFIG[doc.doctype]
+	party = doc.get(config.party_field)
+	if not get_party_pan(config.party_type, party):
 		frappe.msgprint(
 			_(
-				"TCS of {0} has been applied on this invoice but supplier {1} has no PAN on record. "
-				"The PAN is needed to reconcile the TCS credit with Form 26AS."
+				"TCS of {0} has been applied on this invoice but {1} {2} has no PAN on record. "
+				"The PAN is needed to reconcile the TCS with Form 26AS / Form 27EQ."
 			).format(
 				frappe.bold(frappe.format_value(doc.custom_tcs_amount, {"fieldtype": "Currency"})),
-				frappe.bold(doc.supplier),
+				_(config.party_type),
+				frappe.bold(party),
 			),
-			title=_("Supplier PAN missing"),
+			title=_("{0} PAN missing").format(_(config.party_type)),
 			indicator="orange",
 		)
 
@@ -82,21 +96,30 @@ def get_tcs_details(doc):
 
 
 @frappe.whitelist()
-def get_supplier_tcs_category(supplier):
-	"""BR-014: the category to default on the invoice, blank when the supplier has none
+def get_party_tcs_category(party_type, party):
+	"""BR-014: the category to default on the invoice, blank when the party has none
 	or the configured category is no longer active."""
-	if not supplier:
+	if not party or party_type not in ("Supplier", "Customer"):
 		return None
-	category = frappe.get_cached_value("Supplier", supplier, "custom_tcs_category")
+	category = frappe.get_cached_value(party_type, party, "custom_tcs_category")
 	if category and cint(frappe.get_cached_value("TCS Category", category, "is_active")):
 		return category
 	return None
 
 
-def get_supplier_pan(supplier):
-	meta = frappe.get_meta("Supplier")
+@frappe.whitelist()
+def get_supplier_tcs_category(supplier):
+	return get_party_tcs_category("Supplier", supplier)
+
+
+def get_party_pan(party_type, party):
+	meta = frappe.get_meta(party_type)
 	fieldname = "pan" if meta.has_field("pan") else "tax_id"
-	return frappe.db.get_value("Supplier", supplier, fieldname)
+	return frappe.db.get_value(party_type, party, fieldname)
+
+
+def get_supplier_pan(supplier):
+	return get_party_pan("Supplier", supplier)
 
 
 # ----------------------------------------------------------------------
@@ -104,7 +127,12 @@ def get_supplier_pan(supplier):
 # ----------------------------------------------------------------------
 class TCSEngine:
 	def __init__(self, doc):
+		if doc.doctype not in INVOICE_CONFIG:
+			frappe.throw(_("TCS engine does not apply to {0}").format(doc.doctype))
 		self.doc = doc
+		self.config = INVOICE_CONFIG[doc.doctype]
+		self.party_type = self.config.party_type
+		self.party = doc.get(self.config.party_field)
 
 	# -- orchestration -------------------------------------------------
 	def run(self):
@@ -132,8 +160,8 @@ class TCSEngine:
 		# Step 2: load the category (throws if inactive / expired - BR-010, BR-013)
 		category = self.get_category()
 
-		# Step 3: resolve the account (BR-011)
-		account_head = category.get_company_account(self.doc.company)
+		# Step 3: resolve the account for this side (BR-011)
+		account_head = category.get_company_account(self.doc.company, self.party_type)
 
 		# Step 4: resolve the rate (BR-012)
 		rate_row = category.get_applicable_rate_row(self.doc.posting_date)
@@ -183,9 +211,9 @@ class TCSEngine:
 		if not cint(self.doc.get("custom_apply_tcs")):
 			return False
 
-		# BR-014 server-side fallback for API / mapped documents: default from the supplier.
-		if not self.doc.get("custom_tcs_category") and self.doc.get("supplier"):
-			self.doc.custom_tcs_category = get_supplier_tcs_category(self.doc.supplier)
+		# BR-014 server-side fallback for API / mapped documents: default from the party.
+		if not self.doc.get("custom_tcs_category") and self.party:
+			self.doc.custom_tcs_category = get_party_tcs_category(self.party_type, self.party)
 
 		return bool(self.doc.get("custom_tcs_category"))
 
@@ -207,38 +235,38 @@ class TCSEngine:
 		return flt(self.doc.base_grand_total)
 
 	def get_prior_party_total(self, category):
-		"""Sum of the same base over the OTHER submitted Purchase Invoices of this supplier
-		in the financial year (BR-021). Drafts and cancelled invoices are excluded, returns
-		carry a negative base and reduce the total (BR-030).
+		"""Sum of the same base over the OTHER submitted invoices of the same doctype for
+		this party in the financial year (BR-021). Drafts and cancelled invoices are
+		excluded, returns carry a negative base and reduce the total (BR-030).
 
 		With Consider Entire Party Ledger Amount ticked, every submitted invoice of the
-		supplier counts regardless of category or the Apply TCS flag.
+		party counts regardless of category or the Apply TCS flag.
 		"""
 		fiscal_year = get_fiscal_year(self.doc.posting_date, company=self.doc.company)
 		year_start, year_end = getdate(fiscal_year[1]), getdate(fiscal_year[2])
 
-		pi = frappe.qb.DocType("Purchase Invoice")
+		inv = frappe.qb.DocType(self.doc.doctype)
 		if category.calculation_base == "Net Total":
-			base = Sum(pi.base_net_total)
+			base = Sum(inv.base_net_total)
 		else:
 			# a submitted invoice's grand total already carries its own TCS row - take it out
-			base = Sum(pi.base_grand_total - IfNull(pi.custom_tcs_amount, 0))
+			base = Sum(inv.base_grand_total - IfNull(inv.custom_tcs_amount, 0))
 
 		query = (
-			frappe.qb.from_(pi)
+			frappe.qb.from_(inv)
 			.select(base)
-			.where(pi.docstatus == 1)
-			.where(pi.company == self.doc.company)
-			.where(pi.supplier == self.doc.supplier)
-			.where(pi.posting_date >= year_start)
-			.where(pi.posting_date <= year_end)
-			.where(IfNull(pi.is_opening, "No") != "Yes")
+			.where(inv.docstatus == 1)
+			.where(inv.company == self.doc.company)
+			.where(inv[self.config.party_field] == self.party)
+			.where(inv.posting_date >= year_start)
+			.where(inv.posting_date <= year_end)
+			.where(IfNull(inv.is_opening, "No") != "Yes")
 		)
 		if self.doc.name:
-			query = query.where(pi.name != self.doc.name)
+			query = query.where(inv.name != self.doc.name)
 
 		if not cint(category.consider_party_ledger_amount):
-			query = query.where(pi.custom_apply_tcs == 1).where(pi.custom_tcs_category == category.name)
+			query = query.where(inv.custom_apply_tcs == 1).where(inv.custom_tcs_category == category.name)
 
 		result = query.run()
 		return flt(result[0][0]) if result else 0.0
@@ -261,22 +289,24 @@ class TCSEngine:
 	def insert_engine_row(self, account_head, section, rate, amount):
 		# Appended after remove_engine_row(), so it is always the last row (BR-018) and no
 		# other row is ever touched (BR-016).
-		self.doc.append(
-			"taxes",
-			{
-				"custom_is_tcs_row": 1,
-				"category": "Total",
-				"charge_type": "Actual",
-				"add_deduct_tax": "Add",
-				"account_head": account_head,
-				"description": _("TCS {0} @ {1}%").format(section, f"{flt(rate):g}"),
-				"cost_center": self.doc.get("cost_center")
-				or erpnext.get_default_cost_center(self.doc.company),
-				"rate": 0,
-				"tax_amount": amount,
-				"base_tax_amount": amount,
-			},
-		)
+		row = {
+			"custom_is_tcs_row": 1,
+			"charge_type": "Actual",
+			"account_head": account_head,
+			"description": _("TCS {0} @ {1}%").format(section, f"{flt(rate):g}"),
+			"cost_center": self.doc.get("cost_center") or erpnext.get_default_cost_center(self.doc.company),
+			"rate": 0,
+			"tax_amount": amount,
+			"base_tax_amount": amount,
+		}
+		if self.doc.doctype == "Purchase Invoice":
+			# Purchase Taxes and Charges carries the direction and valuation category.
+			# Always Add - TCS increases what we owe the supplier (BR-017).
+			row.update({"category": "Total", "add_deduct_tax": "Add"})
+		# Sales Taxes and Charges rows are always added to the total, so the same Actual
+		# row credits the TCS Payable account and increases what the customer owes.
+
+		self.doc.append("taxes", row)
 
 	# -- bookkeeping -----------------------------------------------------
 	def clear_tracking_fields(self, status=None):
@@ -288,7 +318,7 @@ class TCSEngine:
 		self.doc.custom_tcs_threshold_status = status
 
 	def finish(self):
-		"""Step 15: let the standard Purchase Invoice calculation pick up the taxes table."""
+		"""Step 15: let the standard invoice calculation pick up the taxes table."""
 		self.doc.calculate_taxes_and_totals()
 
 		# The standard validate already built the payment schedule against the pre-TCS

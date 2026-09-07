@@ -13,11 +13,12 @@ class TCSAccount(Document):
 	if TYPE_CHECKING:
 		from frappe.types import DF
 
-		account: DF.Link
+		account: DF.Link | None
 		company: DF.Link
 		parent: DF.Data
 		parentfield: DF.Data
 		parenttype: DF.Data
+		payable_account: DF.Link | None
 	# end: auto-generated types
 
 	pass
