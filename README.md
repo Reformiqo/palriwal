@@ -12,33 +12,40 @@ bench get-app $URL_OF_THIS_REPO --branch version-16
 bench install-app palriwal
 ```
 
-### TCS Engine (Purchase and Sales Invoices)
+### TCS Engine (buying and selling transactions)
 
 A TCS equivalent of the native ERPNext TDS engine, built to the FRD
-"TCS Engine v3.0" and extended to the sales side. Four components, matching the four the TDS engine has:
+"TCS Engine v3.0" and extended to the sales side and to the order and delivery stages.
+Four components, matching the four the TDS engine has:
 
 | # | Component | Where |
 |---|-----------|-------|
 | 1 | `TCS Category` master with `TCS Rate` and `TCS Account` child tables | `palriwal/palriwal/doctype/tcs_*` |
 | 2 | `custom_tcs_category` link on Supplier and Customer (active categories only) | `palriwal/palriwal/tcs/custom_fields.py`, `public/js/tcs_party.js` |
-| 3 | Invoice engine on Purchase Invoice and Sales Invoice: `Apply TCS`, category, threshold logic, automatic tax row, five read-only tracking fields | `palriwal/palriwal/tcs/engine.py`, `tcs_math.py`, `public/js/tcs_invoice.js` |
+| 3 | Engine on Purchase Order, Purchase Receipt, Purchase Invoice, Sales Order, Delivery Note and Sales Invoice: `Apply TCS`, category, threshold logic, automatic tax row, five read-only tracking fields | `palriwal/palriwal/tcs/engine.py`, `tcs_math.py`, `public/js/tcs_transaction.js` |
 | 4 | Reports `TCS Computation Summary` (party type filter), `TCS Receivable Monthly` (purchases) and `TCS Payable Monthly` (sales) | `palriwal/palriwal/report/tcs_*` |
 
 Accounting direction, one row per company in the `TCS Account` table:
 
-| Invoice | TCS collected by | Engine row | Account column | Effect |
-|---------|------------------|------------|----------------|--------|
-| Purchase Invoice | the supplier, from us | `Actual`, `Add` in Purchase Taxes and Charges | Receivable Account (Asset, TCS Receivable) | Debited; we owe the supplier more |
-| Sales Invoice | us, from the customer | `Actual` in Sales Taxes and Charges | Payable Account (Liability, TCS Payable) | Credited; the customer owes us more |
+| Transactions | TCS collected by | Engine row | Account column | Effect |
+|--------------|------------------|------------|----------------|--------|
+| Purchase Order, Purchase Receipt, Purchase Invoice | the supplier, from us | `Actual`, `Add` in Purchase Taxes and Charges | Receivable Account (Asset, TCS Receivable) | Debited on the invoice; we owe the supplier more |
+| Sales Order, Delivery Note, Sales Invoice | us, from the customer | `Actual` in Sales Taxes and Charges | Payable Account (Liability, TCS Payable) | Credited on the invoice; the customer owes us more |
+
+Orders, receipts and delivery notes show the TCS on their totals and hand the engine row, `Apply TCS`
+and the category to the invoice through the standard mapping, where the engine recomputes it. Only the
+invoice posts GL. The cumulative party total is always measured on submitted invoices, so an order or
+receipt shows the position it would create but never counts towards it.
 
 How it runs:
 
 - Custom fields are created idempotently by `after_install` / `after_migrate`, so `bench migrate` is enough.
-- The engine runs on invoice `validate` (hooks.py `doc_events`). It owns exactly one row in the taxes table,
-  flagged `custom_is_tcs_row`, and never touches manually added tax rows.
-- The invoice base (Grand Total or Net Total per category) is measured with the engine row removed, so
-  saving repeatedly never changes the amount. The cumulative party total covers submitted invoices of the
-  same type for the party, category and fiscal year only.
+- The engine runs on `validate` of each transaction (hooks.py `doc_events`). It owns exactly one row in the
+  taxes table, flagged `custom_is_tcs_row`, and never touches manually added tax rows.
+- The document base (Grand Total or Net Total per category) is measured with the engine row removed, so
+  saving repeatedly never changes the amount. The rate row is resolved by posting date, or by transaction
+  date on orders. The cumulative party total covers submitted invoices of the party, category and fiscal
+  year only.
 - The threshold arithmetic has no frappe dependency and is tested against Sheet 13 of the FRD:
 
 ```bash

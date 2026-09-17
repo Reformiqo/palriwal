@@ -44,9 +44,13 @@ app_license = "mit"
 
 # include js in doctype views
 doctype_js = {
-	"Sales Invoice": ["public/js/sales_invoice.js", "public/js/tcs_invoice.js"],
-	"Purchase Invoice": ["public/js/purchase_invoice.js", "public/js/tcs_invoice.js"],
+	"Sales Invoice": ["public/js/sales_invoice.js", "public/js/tcs_transaction.js"],
+	"Purchase Invoice": ["public/js/purchase_invoice.js", "public/js/tcs_transaction.js"],
 	"Payment Entry": "public/js/payment_entry.js",
+	"Purchase Order": "public/js/tcs_transaction.js",
+	"Purchase Receipt": "public/js/tcs_transaction.js",
+	"Sales Order": "public/js/tcs_transaction.js",
+	"Delivery Note": "public/js/tcs_transaction.js",
 	"Supplier": "public/js/tcs_party.js",
 	"Customer": "public/js/tcs_party.js",
 }
@@ -158,14 +162,22 @@ after_migrate = "palriwal.install.after_migrate"
 
 # TCS engine (FRD v3.0, Sheet 10): runs the threshold calculation and refreshes the
 # engine-owned row in the taxes table. Same place the TDS engine runs.
-#   Purchase Invoice -> TCS Receivable (asset) debited, supplier is owed more
-#   Sales Invoice    -> TCS Payable (liability) credited, customer owes more
-# before_submit is the BR-027 party PAN warning, message only.
+#   Supplier side (Purchase Order, Purchase Receipt, Purchase Invoice)
+#       -> TCS Receivable (asset) debited on the invoice, supplier is owed more
+#   Customer side (Sales Order, Delivery Note, Sales Invoice)
+#       -> TCS Payable (liability) credited on the invoice, customer owes more
+# Orders, receipts and delivery notes show the TCS on their totals and pass the row on
+# to the invoice through the standard mapping; GL is posted by the invoice only.
+# before_submit on the invoices is the BR-027 party PAN warning, message only.
 doc_events = {
+	"Purchase Order": {"validate": "palriwal.palriwal.tcs.engine.validate"},
+	"Purchase Receipt": {"validate": "palriwal.palriwal.tcs.engine.validate"},
 	"Purchase Invoice": {
 		"validate": "palriwal.palriwal.tcs.engine.validate",
 		"before_submit": "palriwal.palriwal.tcs.engine.before_submit",
 	},
+	"Sales Order": {"validate": "palriwal.palriwal.tcs.engine.validate"},
+	"Delivery Note": {"validate": "palriwal.palriwal.tcs.engine.validate"},
 	"Sales Invoice": {
 		"validate": "palriwal.palriwal.tcs.engine.validate",
 		"before_submit": "palriwal.palriwal.tcs.engine.before_submit",

@@ -3,10 +3,11 @@
 
 """Custom fields for the TCS engine (FRD v3.0, Sheet 9).
 
-One link on Supplier and on Customer, a section with seven fields on Purchase Invoice
-and on Sales Invoice, and one hidden flag on Purchase Taxes and Charges and on Sales
-Taxes and Charges. Created idempotently from ``after_install`` and ``after_migrate``
-(hooks.py) so a plain ``bench migrate`` keeps a site in sync.
+One link on Supplier and on Customer, a section with seven fields on every buying and
+selling transaction (Purchase Order, Purchase Receipt, Purchase Invoice, Sales Order,
+Delivery Note, Sales Invoice), and one hidden flag on Purchase Taxes and Charges and on
+Sales Taxes and Charges. Created idempotently from ``after_install`` and
+``after_migrate`` (hooks.py) so a plain ``bench migrate`` keeps a site in sync.
 """
 
 import frappe
@@ -45,11 +46,25 @@ def get_custom_fields():
 				"module": MODULE,
 			},
 		],
-		"Purchase Invoice": get_invoice_fields("Purchase Invoice"),
-		"Sales Invoice": get_invoice_fields("Sales Invoice"),
+		**{doctype: get_invoice_fields(doctype) for doctype in TRANSACTION_SECTION_ANCHOR},
 		"Purchase Taxes and Charges": [get_tcs_row_flag()],
 		"Sales Taxes and Charges": [get_tcs_row_flag()],
 	}
+
+
+# Where the TCS section sits on each transaction: immediately after the standard Tax
+# Withholding section on the invoices (Sheet 9); the other transactions have no such
+# section, so it follows the Taxes and Charges table.
+TRANSACTION_SECTION_ANCHOR = {
+	"Purchase Order": "taxes",
+	"Purchase Receipt": "taxes",
+	"Purchase Invoice": "tax_withholding_entries",
+	"Sales Order": "taxes",
+	"Delivery Note": "taxes",
+	"Sales Invoice": "tax_withholding_entries",
+}
+
+SUPPLIER_TRANSACTIONS = ("Purchase Order", "Purchase Receipt", "Purchase Invoice")
 
 
 def get_tcs_row_flag():
@@ -60,7 +75,9 @@ def get_tcs_row_flag():
 		"insert_after": "is_tax_withholding_account",
 		"hidden": 1,
 		"read_only": 1,
-		"no_copy": 1,
+		# copied on purpose: when an order or receipt is mapped into an invoice the flag
+		# travels with the row, so the engine replaces it instead of adding a second one
+		"no_copy": 0,
 		"print_hide": 1,
 		"description": "Marks the row owned by the TCS engine. Only this row is ever created, updated or deleted by the engine.",
 		"module": MODULE,
@@ -68,7 +85,7 @@ def get_tcs_row_flag():
 
 
 def get_invoice_fields(doctype):
-	party = "supplier" if doctype == "Purchase Invoice" else "customer"
+	party = "supplier" if doctype in SUPPLIER_TRANSACTIONS else "customer"
 	return [
 		{
 			"fieldname": "custom_tcs_sb",
@@ -76,8 +93,7 @@ def get_invoice_fields(doctype):
 			"fieldtype": "Section Break",
 			"collapsible": 1,
 			"collapsible_depends_on": "eval:doc.custom_apply_tcs",
-			# immediately after the standard Tax Withholding section (Sheet 9)
-			"insert_after": "tax_withholding_entries",
+			"insert_after": TRANSACTION_SECTION_ANCHOR[doctype],
 			"module": MODULE,
 		},
 		{

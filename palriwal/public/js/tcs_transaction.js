@@ -1,34 +1,42 @@
-// Palriwal TCS engine - Purchase Invoice and Sales Invoice forms (FRD v3.0, Sheet 10).
+// Palriwal TCS engine - buying and selling transaction forms (FRD v3.0, Sheet 10):
+// Purchase Order, Purchase Receipt, Purchase Invoice, Sales Order, Delivery Note, Sales Invoice.
 //
 //   party changed         -> default the category from the supplier / customer, set Apply TCS (BR-014)
 //   Apply TCS toggled     -> recalculate; unticked removes the engine row and clears fields
 //   TCS Category changed  -> recalculate from scratch against the new category
-//   posting_date changed  -> re-resolve the rate row and recalculate
+//   date changed          -> re-resolve the rate row and recalculate
+//                            (posting_date, or transaction_date on orders)
+//   new mapped document   -> recalculate, so an invoice made from an order or receipt shows
+//                            fresh figures instead of the ones copied across
 //
 // Every recalculation asks the server (palriwal.palriwal.tcs.engine.get_tcs_details) so the
 // form and the save use one and the same algorithm. The server-side validate is still the
 // authority - whatever the form shows is recomputed on save.
 //
-// Loaded through hooks.py -> doctype_js for both invoice doctypes; the guard keeps the
-// handlers from being registered twice when both forms are opened in one session.
+// Loaded through hooks.py -> doctype_js for every transaction doctype; the guard keeps the
+// handlers from being registered twice when several forms are opened in one session.
 
 (function () {
-	if (window.__palriwal_tcs_invoice_loaded) return;
-	window.__palriwal_tcs_invoice_loaded = true;
+	if (window.__palriwal_tcs_transaction_loaded) return;
+	window.__palriwal_tcs_transaction_loaded = true;
 
+	const SUPPLIER = {
+		party_type: "Supplier",
+		party_field: "supplier",
+		taxes_doctype: "Purchase Taxes and Charges",
+	};
+	const CUSTOMER = {
+		party_type: "Customer",
+		party_field: "customer",
+		taxes_doctype: "Sales Taxes and Charges",
+	};
 	const INVOICES = [
-		{
-			doctype: "Purchase Invoice",
-			party_type: "Supplier",
-			party_field: "supplier",
-			taxes_doctype: "Purchase Taxes and Charges",
-		},
-		{
-			doctype: "Sales Invoice",
-			party_type: "Customer",
-			party_field: "customer",
-			taxes_doctype: "Sales Taxes and Charges",
-		},
+		{ doctype: "Purchase Order", date_field: "transaction_date", ...SUPPLIER },
+		{ doctype: "Purchase Receipt", date_field: "posting_date", ...SUPPLIER },
+		{ doctype: "Purchase Invoice", date_field: "posting_date", ...SUPPLIER },
+		{ doctype: "Sales Order", date_field: "transaction_date", ...CUSTOMER },
+		{ doctype: "Delivery Note", date_field: "posting_date", ...CUSTOMER },
+		{ doctype: "Sales Invoice", date_field: "posting_date", ...CUSTOMER },
 	];
 
 	const TRACKING_FIELDS = [
@@ -103,7 +111,7 @@
 			return;
 		}
 
-		if (!frm.doc.company || !frm.doc.posting_date || !frm.doc[cfg.party_field]) return;
+		if (!frm.doc.company || !frm.doc[cfg.date_field] || !frm.doc[cfg.party_field]) return;
 
 		frappe.call({
 			method: "palriwal.palriwal.tcs.engine.get_tcs_details",
@@ -168,14 +176,15 @@
 			},
 
 			onload(frm) {
-				// A brand-new invoice that already carries a party (duplicated, mapped from an
-				// order / delivery / receipt, or created from a list filter) still needs the default.
-				if (
-					frm.is_new() &&
-					frm.doc[cfg.party_field] &&
-					!frm.doc.custom_apply_tcs &&
-					!frm.doc.custom_tcs_category
-				) {
+				if (!frm.is_new() || !frm.doc[cfg.party_field]) return;
+
+				if (frm.doc.custom_apply_tcs && frm.doc.custom_tcs_category) {
+					// Mapped from an order / receipt / delivery note (or duplicated): Apply TCS and
+					// the category came across, the figures must be recomputed for this document.
+					recalculate(frm, cfg);
+				} else if (!frm.doc.custom_apply_tcs && !frm.doc.custom_tcs_category) {
+					// Created with a party already set (list filter, duplicate of a non-TCS
+					// document): still needs the default from the party.
 					default_from_party(frm, cfg);
 				}
 			},
@@ -199,14 +208,14 @@
 			custom_tcs_category(frm) {
 				recalculate(frm, cfg);
 			},
-
-			posting_date(frm) {
-				if (frm.doc.custom_apply_tcs && frm.doc.custom_tcs_category) recalculate(frm, cfg);
-			},
 		};
 		// supplier(frm) / customer(frm)
 		handlers[cfg.party_field] = function (frm) {
 			default_from_party(frm, cfg);
+		};
+		// posting_date(frm) / transaction_date(frm)
+		handlers[cfg.date_field] = function (frm) {
+			if (frm.doc.custom_apply_tcs && frm.doc.custom_tcs_category) recalculate(frm, cfg);
 		};
 
 		frappe.ui.form.on(cfg.doctype, handlers);
