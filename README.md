@@ -68,6 +68,59 @@ Site setup after install (configuration, not code):
 4. Optionally add `TCS Category` and the three reports to the Accounting workspace (Taxes section) from the
    workspace editor.
 
+### Delivery Order flow (Purchase Order -> Delivery Order -> Delivery Note -> Purchase Receipt)
+
+Backend replacement for the Server / Client Scripts that ran this flow. Code in
+`palriwal/palriwal/delivery_order`, report in `palriwal/palriwal/report/delivery_order_tracker`.
+
+| Step | Where | What happens |
+|------|-------|--------------|
+| PO -> DO | Purchase Order, `Create > Delivery Order` (Jay Ambey Traders) | Same prompt as before. The Delivery Order may not take more than the PO item's pending qty (PO qty - qty on draft/submitted DOs); checked on every DO save. |
+| DO -> DN | Delivery Order, `Create Delivery Note` | Dialog with DO Qty, Delivered, Pending and an editable Qty to Deliver per row (defaults to pending, may be partial). Opens an unsaved Delivery Note with `Delivery Out` and the row links set. |
+| DN save | `validate` | Each item row is linked to its Delivery Order row (`custom_delivery_order`, `custom_delivery_order_item`). The linked qty may not exceed the row's pending qty; a fully delivered DO takes nothing more. Items not on the DO stay unlinked and outside the flow. |
+| DN submit | `on_submit` | Delivered / Pending Qty and Delivery Status of the DO are recomputed. A draft Purchase Receipt is made for exactly the Delivery Note qty (PO rate, PO taxes, `Stores - <abbr>` warehouse). Returns reduce Delivered Qty and make no receipt. |
+| DN cancel | `on_cancel` | Its submitted Purchase Receipts are cancelled, draft ones deleted, and the DO quantities recomputed. |
+| PR save | `validate` | A receipt made from a Delivery Note may not receive more of an item than the note delivered (other open receipts of the same note included) and cannot be submitted while the note is not submitted. |
+| DO | `Create Payment` | Same Payment Entry as before (grand total, against the PO, one per DO). |
+
+Delivered Qty = sum of submitted Delivery Note qty against the row (returns negative), Pending Qty =
+DO Qty - Delivered Qty. Both are recomputed from the Delivery Notes each time (never incremented), on
+the DO rows (`custom_delivered_qty`, `custom_pending_qty`) and as totals with a `Delivery Status`
+(Not / Partly / Fully Delivered) on the DO. The DO list shows the status as its indicator.
+
+Report **Delivery Order Tracker**: PO, PO item, DO, DO row, DN, DN row, PR and PR row with ordered,
+DO, delivered, pending, DN, PR and not-yet-received quantities, dates, statuses, supplier, customer,
+item and warehouses. Views: `Transaction Detail` (one line per DN / PR row) and `Delivery Order
+Summary` (one line per DO row). Filters: company, DO date range, delivery status, only pending,
+Purchase Receipt status (Not Created / Draft / Submitted), PO, DO, supplier, customer, item.
+
+`bench migrate` creates the custom fields and runs `patches/v1_0/setup_delivery_order_tracking`,
+which links the rows of existing Delivery Notes to their DO rows and fills Delivered / Pending Qty
+on every submitted DO. Existing Purchase Receipts are not changed.
+
+Cutover, once the flow is tested on the site:
+
+1. The app runs before the Server Scripts on the same event, so while they are still enabled the
+   receipt is made by the app (with the right qty) and the scripts only report that it exists. The
+   app's buttons carry the same labels as the Client Scripts', so each shows once.
+2. Disable these scripts (Server Script / Client Script list, untick Enabled / tick Disabled):
+   - Server Script `Creating purchase receipt on delivery note submission only if it has delivery out id selected - N`
+   - Server Script `Cancelling purchase receipt when delivery note is cancelled`
+   - Server Script `Get pending qty in dn creation from po - N`
+   - Server Script `Making Delivery Out from PO - N`
+   - Server Script `Making Payment Entry from Delivery Out for linked PO- N`
+   - Client Script `Making Delivery Note from PO - N` (Purchase Order)
+   - Client Script `Making Payment Entry from Delivery Out for linked PO- N` (Delivery Order)
+   - Client Script `Updated Creating purchase receipt on delivery note submission only if it has delivery out id selected - N` (Delivery Note)
+3. Until the first Server Script above is disabled it still makes a full-DO-qty receipt for a
+   Delivery Note *return* that carries `Delivery Out`; the app does not.
+
+The quantity rules have no frappe dependency and are unit tested:
+
+```bash
+python -m unittest palriwal.palriwal.delivery_order.test_qty_math
+```
+
 ### Contributing
 
 This app uses `pre-commit` for code formatting and linting. Please [install pre-commit](https://pre-commit.com/#installation) and enable it for this repository:

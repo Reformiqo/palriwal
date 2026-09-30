@@ -27,6 +27,8 @@ app_license = "mit"
 # include js, css files in header of desk.html
 # app_include_css = "/assets/palriwal/css/palriwal.css"
 # app_include_js = "/assets/palriwal/js/palriwal.js"
+# Delivery Order is a site-level custom DocType, for which Frappe loads no doctype_js
+app_include_js = ["/assets/palriwal/js/delivery_order.js"]
 
 # include js, css files in header of web template
 # web_include_css = "/assets/palriwal/css/palriwal.css"
@@ -47,10 +49,10 @@ doctype_js = {
 	"Sales Invoice": ["public/js/sales_invoice.js", "public/js/tcs_transaction.js"],
 	"Purchase Invoice": ["public/js/purchase_invoice.js", "public/js/tcs_transaction.js"],
 	"Payment Entry": "public/js/payment_entry.js",
-	"Purchase Order": "public/js/tcs_transaction.js",
+	"Purchase Order": ["public/js/tcs_transaction.js", "public/js/purchase_order_delivery.js"],
 	"Purchase Receipt": "public/js/tcs_transaction.js",
 	"Sales Order": "public/js/tcs_transaction.js",
-	"Delivery Note": "public/js/tcs_transaction.js",
+	"Delivery Note": ["public/js/tcs_transaction.js", "public/js/delivery_note_delivery.js"],
 	"Supplier": "public/js/tcs_party.js",
 	"Customer": "public/js/tcs_party.js",
 }
@@ -169,15 +171,34 @@ after_migrate = "palriwal.install.after_migrate"
 # Orders, receipts and delivery notes show the TCS on their totals and pass the row on
 # to the invoice through the standard mapping; GL is posted by the invoice only.
 # before_submit on the invoices is the BR-027 party PAN warning, message only.
+#
+# Delivery Order flow (palriwal/palriwal/delivery_order): Purchase Order -> Delivery Order ->
+# Delivery Note -> Purchase Receipt. The Delivery Note keeps the Delivery Order's Delivered /
+# Pending Qty in sync and makes the draft Purchase Receipt for exactly its own quantity; the
+# receipt may not take more than its Delivery Note. Runs before any Server Script on the same
+# event, so the legacy scripts find the receipt already made and skip.
 doc_events = {
 	"Purchase Order": {"validate": "palriwal.palriwal.tcs.engine.validate"},
-	"Purchase Receipt": {"validate": "palriwal.palriwal.tcs.engine.validate"},
+	"Purchase Receipt": {
+		"validate": [
+			"palriwal.palriwal.tcs.engine.validate",
+			"palriwal.palriwal.delivery_order.purchase_receipt.validate",
+		]
+	},
+	"Delivery Order": {"validate": "palriwal.palriwal.delivery_order.delivery_order.validate"},
 	"Purchase Invoice": {
 		"validate": "palriwal.palriwal.tcs.engine.validate",
 		"before_submit": "palriwal.palriwal.tcs.engine.before_submit",
 	},
 	"Sales Order": {"validate": "palriwal.palriwal.tcs.engine.validate"},
-	"Delivery Note": {"validate": "palriwal.palriwal.tcs.engine.validate"},
+	"Delivery Note": {
+		"validate": [
+			"palriwal.palriwal.tcs.engine.validate",
+			"palriwal.palriwal.delivery_order.delivery_note.validate",
+		],
+		"on_submit": "palriwal.palriwal.delivery_order.delivery_note.on_submit",
+		"on_cancel": "palriwal.palriwal.delivery_order.delivery_note.on_cancel",
+	},
 	"Sales Invoice": {
 		"validate": "palriwal.palriwal.tcs.engine.validate",
 		"before_submit": "palriwal.palriwal.tcs.engine.before_submit",
