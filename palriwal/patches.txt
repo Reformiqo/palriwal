@@ -4,3 +4,4 @@
 
 [post_model_sync]
 # Patches added in this section will be executed after doctypes are migrated
+palriwal.patches.v1_0.setup_delivery_order_tracking
