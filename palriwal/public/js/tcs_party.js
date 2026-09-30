@@ -10,6 +10,7 @@
 	["Supplier", "Customer"].forEach((doctype) => {
 		frappe.ui.form.on(doctype, {
 			setup(frm) {
+				if (!frm.fields_dict.custom_tcs_category) return; // site not migrated yet
 				frm.set_query("custom_tcs_category", () => ({ filters: { is_active: 1 } }));
 			},
 		});

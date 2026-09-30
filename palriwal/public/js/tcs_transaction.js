@@ -61,6 +61,12 @@
 		"included_in_paid_amount",
 	];
 
+	// The site may run this app before `bench migrate` created the fields; every handler
+	// steps aside until they exist so nothing else on the form is affected.
+	function has_tcs_fields(frm) {
+		return Boolean(frm.fields_dict.custom_apply_tcs && frm.fields_dict.custom_tcs_category);
+	}
+
 	function remove_engine_rows(frm) {
 		const rows = (frm.doc.taxes || []).filter((d) => d.custom_is_tcs_row);
 		rows.forEach((d) => frappe.model.clear_doc(d.doctype, d.name));
@@ -96,7 +102,7 @@
 	}
 
 	function recalculate(frm, cfg) {
-		if (frm.doc.docstatus !== 0) return;
+		if (frm.doc.docstatus !== 0 || !has_tcs_fields(frm)) return;
 
 		frm.__tcs_token = (frm.__tcs_token || 0) + 1;
 		const token = frm.__tcs_token;
@@ -136,7 +142,7 @@
 	}
 
 	function default_from_party(frm, cfg) {
-		if (!frm.is_new() || frm.doc.docstatus !== 0) return;
+		if (!frm.is_new() || frm.doc.docstatus !== 0 || !has_tcs_fields(frm)) return;
 
 		if (!frm.doc[cfg.party_field]) {
 			frm.doc.custom_apply_tcs = 0;
@@ -159,7 +165,8 @@
 
 	function lock_engine_row(frm, cdt, cdn) {
 		const row = locals[cdt][cdn];
-		const grid_row = frm.fields_dict.taxes.grid.get_row(cdn);
+		if (!row || !row.custom_is_tcs_row) return; // manual rows are never touched
+		const grid_row = frm.fields_dict.taxes && frm.fields_dict.taxes.grid.get_row(cdn);
 		if (!grid_row) return;
 		const editable = !row.custom_is_tcs_row && frm.doc.docstatus === 0;
 		LOCKED_ROW_FIELDS.forEach((f) => {
@@ -172,11 +179,12 @@
 	INVOICES.forEach((cfg) => {
 		const handlers = {
 			setup(frm) {
+				if (!has_tcs_fields(frm)) return;
 				frm.set_query("custom_tcs_category", () => ({ filters: { is_active: 1 } }));
 			},
 
 			onload(frm) {
-				if (!frm.is_new() || !frm.doc[cfg.party_field]) return;
+				if (!frm.is_new() || !frm.doc[cfg.party_field] || !has_tcs_fields(frm)) return;
 
 				if (frm.doc.custom_apply_tcs && frm.doc.custom_tcs_category) {
 					// Mapped from an order / receipt / delivery note (or duplicated): Apply TCS and
@@ -227,6 +235,7 @@
 			taxes_remove(frm) {
 				// Removing the engine row by hand is undone on save; keep the form honest now.
 				if (
+					has_tcs_fields(frm) &&
 					frm.doc.custom_apply_tcs &&
 					frm.doc.custom_tcs_category &&
 					frm.doc.custom_tcs_amount &&
