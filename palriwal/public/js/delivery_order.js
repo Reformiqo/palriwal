@@ -14,6 +14,13 @@
 	const QTY_COLUMNS = ["custom_delivered_qty", "custom_pending_qty"];
 
 	frappe.ui.form.on("Delivery Order", {
+		setup(frm) {
+			// Delivered / Pending Qty change when Delivery Notes are submitted elsewhere, without
+			// touching the Delivery Order's modified time, so Frappe's 120 s cache would show old
+			// quantities on coming back from the Delivery Note. Reload after 5 s instead.
+			frm.refresh_if_stale_for = 5;
+		},
+
 		refresh(frm) {
 			show_qty_columns(frm);
 			if (frm.doc.docstatus !== 1) return;
