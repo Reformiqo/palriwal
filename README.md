@@ -32,6 +32,10 @@ Accounting direction, one row per company in the `TCS Account` table:
 | Purchase Order, Purchase Receipt, Purchase Invoice | the supplier, from us | `Actual`, `Add` in Purchase Taxes and Charges | Receivable Account (Asset, TCS Receivable) | Debited on the invoice; we owe the supplier more |
 | Sales Order, Delivery Note, Sales Invoice | us, from the customer | `Actual` in Sales Taxes and Charges | Payable Account (Liability, TCS Payable) | Credited on the invoice; the customer owes us more |
 
+The `Apply TCS` checkbox sits in the document header next to the other flags (after Is Subcontracted on
+the orders, after Consider for Tax Withholding on the invoices); the TCS section with the category and the
+tracking fields appears below the taxes table while it is ticked.
+
 Orders, receipts and delivery notes show the TCS on their totals and hand the engine row, `Apply TCS`
 and the category to the invoice through the standard mapping, where the engine recomputes it. Only the
 invoice posts GL. The cumulative party total is always measured on submitted invoices, so an order or
