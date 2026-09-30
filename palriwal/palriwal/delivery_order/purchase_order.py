@@ -181,7 +181,10 @@ def make_delivery_order(purchase_order, items):
 def add_gst_rows(order, po, net_total):
 	abbr = frappe.get_cached_value("Company", po.company, "abbr")
 	company_state = str(frappe.get_cached_value("Company", po.company, "gst_state_number") or "").strip()
-	supplier_gstin = frappe.db.get_value("Supplier", po.supplier, "gstin") or ""
+	# gstin comes from India Compliance; without it the order is treated as intra-state
+	supplier_gstin = ""
+	if frappe.get_meta("Supplier").has_field("gstin"):
+		supplier_gstin = frappe.db.get_value("Supplier", po.supplier, "gstin") or ""
 	supplier_state = supplier_gstin[:2] if len(supplier_gstin) >= 2 else ""
 	is_inter_state = bool(company_state and supplier_state and company_state != supplier_state)
 
