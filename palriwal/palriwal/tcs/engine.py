@@ -129,6 +129,9 @@ def get_party_tcs_category(party_type, party):
 	or the configured category is no longer active."""
 	if not party or party_type not in ("Supplier", "Customer"):
 		return None
+	if not frappe.get_meta(party_type).has_field("custom_tcs_category"):
+		# site not migrated yet - behave as if no party had a category
+		return None
 	category = frappe.get_cached_value(party_type, party, "custom_tcs_category")
 	if category and cint(frappe.get_cached_value("TCS Category", category, "is_active")):
 		return category
@@ -166,14 +169,23 @@ class TCSEngine:
 
 	# -- orchestration -------------------------------------------------
 	def run(self):
+		# Never touch a document the engine has no business with: no fields yet (the app
+		# was updated but the site not migrated), Apply TCS unticked and nothing of ours on
+		# the document. Totals, payment schedule and every other row stay exactly as the
+		# standard validate left them.
+		if not self.has_tcs_fields():
+			return
+
 		# Step 5 prerequisite / BR-015: the engine's own row is stripped BEFORE anything
 		# is measured, so the base can never include last save's TCS.
-		self.remove_engine_row()
+		had_engine_row = self.remove_engine_row()
 
 		# Step 1: guard
 		if not self.is_applicable():
-			self.clear_tracking_fields()
-			self.finish()
+			if had_engine_row or self.has_tracking_values():
+				# BR-025: Apply TCS was unticked on a document that carried TCS - clean up
+				self.clear_tracking_fields()
+				self.finish()
 			return
 
 		# BR-028 / FR-030: company currency only in phase 1
@@ -234,6 +246,12 @@ class TCSEngine:
 		self.finish()
 
 	# -- guards ----------------------------------------------------------
+	def has_tcs_fields(self):
+		return self.doc.meta.has_field("custom_apply_tcs") and self.doc.meta.has_field("custom_tcs_category")
+
+	def has_tracking_values(self):
+		return any(self.doc.get(f) for f in TRACKING_FIELDS)
+
 	def is_applicable(self):
 		if self.doc.get("is_opening") == "Yes":
 			return False
@@ -311,12 +329,15 @@ class TCSEngine:
 		return None
 
 	def remove_engine_row(self):
+		"""Drop the engine-owned row(s). Returns True when there was one."""
 		taxes = self.doc.get("taxes") or []
 		kept = [row for row in taxes if not cint(row.get("custom_is_tcs_row"))]
-		if len(kept) != len(taxes):
-			self.doc.set("taxes", kept)
-			for idx, row in enumerate(self.doc.taxes, start=1):
-				row.idx = idx
+		if len(kept) == len(taxes):
+			return False
+		self.doc.set("taxes", kept)
+		for idx, row in enumerate(self.doc.taxes, start=1):
+			row.idx = idx
+		return True
 
 	def insert_engine_row(self, account_head, section, rate, amount):
 		# Appended after remove_engine_row(), so it is always the last row (BR-018) and no

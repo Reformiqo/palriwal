@@ -64,6 +64,20 @@ TRANSACTION_SECTION_ANCHOR = {
 	"Sales Invoice": "tax_withholding_entries",
 }
 
+# Where the Apply TCS checkbox sits: in the header column of every transaction, after
+# Is Subcontracted where that field is in the header (Purchase Order, Sales Order). On the
+# receipts and invoices Is Subcontracted lives inside the Items section, so the checkbox
+# follows the last header checkbox instead - on the invoices that is the native
+# "Consider for Tax Withholding" (apply_tds), so TDS and TCS sit together.
+APPLY_TCS_ANCHOR = {
+	"Purchase Order": "is_subcontracted",
+	"Purchase Receipt": "is_return",
+	"Purchase Invoice": "apply_tds",
+	"Sales Order": "is_subcontracted",
+	"Delivery Note": "issue_credit_note",
+	"Sales Invoice": "apply_tds",
+}
+
 SUPPLIER_TRANSACTIONS = ("Purchase Order", "Purchase Receipt", "Purchase Invoice")
 
 
@@ -88,21 +102,24 @@ def get_invoice_fields(doctype):
 	party = "supplier" if doctype in SUPPLIER_TRANSACTIONS else "customer"
 	return [
 		{
-			"fieldname": "custom_tcs_sb",
-			"label": "TCS",
-			"fieldtype": "Section Break",
-			"collapsible": 1,
-			"collapsible_depends_on": "eval:doc.custom_apply_tcs",
-			"insert_after": TRANSACTION_SECTION_ANCHOR[doctype],
-			"module": MODULE,
-		},
-		{
+			# the switch, in the document header next to the other flags
 			"fieldname": "custom_apply_tcs",
 			"label": "Apply TCS",
 			"fieldtype": "Check",
-			"insert_after": "custom_tcs_sb",
+			"insert_after": APPLY_TCS_ANCHOR[doctype],
 			"print_hide": 1,
 			"description": f"Defaults to ticked when the {party} has a TCS Category.",
+			"module": MODULE,
+		},
+		{
+			# the details, shown only while Apply TCS is ticked
+			"fieldname": "custom_tcs_sb",
+			"label": "TCS",
+			"fieldtype": "Section Break",
+			"collapsible": 0,
+			"collapsible_depends_on": "",
+			"depends_on": "eval:doc.custom_apply_tcs",
+			"insert_after": TRANSACTION_SECTION_ANCHOR[doctype],
 			"module": MODULE,
 		},
 		{
@@ -110,7 +127,7 @@ def get_invoice_fields(doctype):
 			"label": "TCS Category",
 			"fieldtype": "Link",
 			"options": "TCS Category",
-			"insert_after": "custom_apply_tcs",
+			"insert_after": "custom_tcs_sb",
 			"depends_on": "eval:doc.custom_apply_tcs",
 			"print_hide": 1,
 			"module": MODULE,
