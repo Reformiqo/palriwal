@@ -188,8 +188,15 @@ def pr_status_of(receipts):
 	return statuses.pop() if len(statuses) == 1 else "Partly Submitted"
 
 
-def order_values(order, po_items, first):
-	po = po_items.get((order.purchase_order, order.item_code), frappe._dict())
+def order_values(order, po_items, first, seen_po_items):
+	"""Delivery Order row values. Quantities only on the row's first line (first) and the
+	Purchase Order quantity only once per Purchase Order item across the report, so totals add up.
+	"""
+	key = (order.purchase_order, order.item_code)
+	po = po_items.get(key, frappe._dict())
+	first_po_line = first and key not in seen_po_items
+	if first_po_line:
+		seen_po_items.add(key)
 	return {
 		"purchase_order": order.purchase_order,
 		"po_date": po.po_date,
@@ -198,7 +205,7 @@ def order_values(order, po_items, first):
 		"supplier_name": order.supplier_name,
 		"item_code": order.item_code,
 		"item_name": order.item_name,
-		"ordered_qty": flt(po.ordered_qty) if first else None,
+		"ordered_qty": flt(po.ordered_qty) if first_po_line else None,
 		"delivery_order": order.delivery_order,
 		"do_date": order.do_date,
 		"required_by": order.required_by,
@@ -224,13 +231,13 @@ def filter_notes(filters, notes, receipt_rows):
 
 
 def get_detail_data(filters, order_rows, note_rows, receipt_rows, po_items):
-	data = []
+	data, seen_po_items = [], set()
 	for order in order_rows:
 		notes = filter_notes(filters, note_rows.get(order.order_row, []), receipt_rows)
 		if not keep_order_row(filters, notes):
 			continue
 		if not notes:
-			data.append(order_values(order, po_items, True))
+			data.append(order_values(order, po_items, True, seen_po_items))
 			continue
 
 		first_line_of_order = True
@@ -247,7 +254,7 @@ def get_detail_data(filters, order_rows, note_rows, receipt_rows, po_items):
 				"pr_status": pr_status_of(receipts) if not note.is_return else None,
 			}
 			for i, receipt in enumerate(receipts or [None]):
-				line = order_values(order, po_items, first_line_of_order)
+				line = order_values(order, po_items, first_line_of_order, seen_po_items)
 				line.update(note_values)
 				if i == 0:
 					line["dn_qty"] = flt(note.dn_qty)
@@ -269,7 +276,7 @@ def get_detail_data(filters, order_rows, note_rows, receipt_rows, po_items):
 
 
 def get_summary_data(filters, order_rows, note_rows, receipt_rows, po_items):
-	data = []
+	data, seen_po_items = [], set()
 	for order in order_rows:
 		notes = filter_notes(filters, note_rows.get(order.order_row, []), receipt_rows)
 		if not keep_order_row(filters, notes):
@@ -277,7 +284,7 @@ def get_summary_data(filters, order_rows, note_rows, receipt_rows, po_items):
 		receipts = [r for n in notes for r in receipt_rows.get(n.note_row, [])]
 		dn_qty = sum(flt(n.dn_qty) for n in notes)
 		pr_qty = sum(flt(r.pr_qty) for r in receipts)
-		line = order_values(order, po_items, True)
+		line = order_values(order, po_items, True, seen_po_items)
 		line.update(
 			{
 				"dn_count": len({n.delivery_note for n in notes}),
